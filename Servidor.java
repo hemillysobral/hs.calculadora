@@ -1,72 +1,47 @@
 import com.sun.net.httpserver.HttpServer;
-import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+
 import java.io.*;
 import java.net.InetSocketAddress;
-import java.net.URLDecoder;
-import java.nio.file.Files;
 
 public class Servidor {
-    public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
+    public static void main(String[] args) throws IOException {
+        int port = System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) : 8080;
+        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
 
-        // Servir arquivos estáticos
-        server.createContext("/", new StaticHandler());
+        server.createContext("/", new FileHandler("index.html", "text/html"));
+        server.createContext("/style.css", new FileHandler("style.css", "text/css"));
+        // Adicione mais contextos se tiver JS, imagens etc.
 
-        // Lidar com cálculo
-        server.createContext("/calc", new CalcHandler());
-
-        server.setExecutor(null);
+        server.setExecutor(null); // default executor
+        System.out.println("Servidor rodando na porta " + port);
         server.start();
-        System.out.println("Servidor rodando na porta 8080");
     }
 
-    static class StaticHandler implements HttpHandler {
+    static class FileHandler implements HttpHandler {
+        private final String filePath;
+        private final String contentType;
+
+        FileHandler(String filePath, String contentType) {
+            this.filePath = filePath;
+            this.contentType = contentType;
+        }
+
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            String path = exchange.getRequestURI().getPath();
-            if (path.equals("/")) path = "/index.html";
-
-            File file = new File("public" + path);
+            File file = new File(filePath);
             if (!file.exists()) {
-                String resposta = "404 Not Found";
-                exchange.sendResponseHeaders(404, resposta.length());
-                exchange.getResponseBody().write(resposta.getBytes());
-                exchange.getResponseBody().close();
+                exchange.sendResponseHeaders(404, -1);
                 return;
             }
-            byte[] bytes = Files.readAllBytes(file.toPath());
-            // definir tipo de conteúdo
-            String contentType = "text/html";
-            if (path.endsWith(".css")) contentType = "text/css";
-            if (path.endsWith(".js")) contentType = "application/javascript";
-            exchange.getResponseHeaders().set("Content-Type", contentType);
-            exchange.sendResponseHeaders(200, bytes.length);
-            exchange.getResponseBody().write(bytes);
-            exchange.getResponseBody().close();
-        }
-    }
 
-    static class CalcHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            String query = exchange.getRequestURI().getQuery();
-            String resultado = "Erro";
-            if (query != null && query.startsWith("expr=")) {
-                String expr = URLDecoder.decode(query.substring(5), "UTF-8");
-                try {
-                    var engine = new javax.script.ScriptEngineManager().getEngineByName("JavaScript");
-                    Object res = engine.eval(expr);
-                    resultado = String.valueOf(res);
-                } catch (Exception e) {
-                    resultado = "Erro";
-                }
-            }
-            byte[] respBytes = resultado.getBytes();
-            exchange.getResponseHeaders().set("Content-Type", "text/plain");
-            exchange.sendResponseHeaders(200, respBytes.length);
-            exchange.getResponseBody().write(respBytes);
-            exchange.getResponseBody().close();
+            exchange.getResponseHeaders().set("Content-Type", contentType);
+            byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+            exchange.sendResponseHeaders(200, bytes.length);
+            OutputStream os = exchange.getResponseBody();
+            os.write(bytes);
+            os.close();
         }
     }
 }
